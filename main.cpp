@@ -4,6 +4,12 @@
 #include <ctime>
 #include <algorithm>
 #include "helper_functions.cpp"
+double sphereFunction(const std::vector<double>& x) {
+    double sum = 0.0;
+    for (double v : x)
+        sum += v * v;
+    return sum;
+}
 int main() {
     srand(time(NULL));
 
@@ -13,7 +19,8 @@ int main() {
         500,    // iteracje
         0.25,   // pa
         -10.0,  // dolna granica
-        10.0    // górna granica
+        10.0,   // górna granica
+        sphereFunction // funkcja celu
     );
 
     cout << "Najlepsze rozwiazanie:\n";
@@ -21,5 +28,5 @@ int main() {
         cout << x << " ";
     cout << endl;
 
-    cout << "Wartosc funkcji: " << fitness(best) << endl;
+    cout << "Wartosc funkcji: " << sphereFunction(best) << endl;
 }

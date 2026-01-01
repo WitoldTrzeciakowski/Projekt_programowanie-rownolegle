@@ -9,13 +9,6 @@ using namespace std;
 
 // ===================== helpers =====================
 
-double fitness(const vector<double>& x) {
-    double sum = 0.0;
-    for (double v : x)
-        sum += v * v;
-    return sum;
-}
-
 
 double randDouble(double a, double b) {
     return a + (b - a) * ((double)rand() / RAND_MAX);
@@ -29,7 +22,8 @@ double levyFlight() {
 }
 
 vector<double> cuckooSearch(int N, int DIM, int MAX_ITER,
-                            double pa, double LB, double UB)
+                            double pa, double LB, double UB,
+                            function<double(const vector<double>&)> fitness)
 {
     vector<vector<double>> nests(N, vector<double>(DIM));
     vector<double> fitnessVal(N);
