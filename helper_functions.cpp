@@ -187,3 +187,138 @@ vector<double> cuckooSearchParallel(int N, int DIM, int MAX_ITER,
     int best = min_element(fitnessVal.begin(), fitnessVal.end()) - fitnessVal.begin();
     return nests[best];
 }
+// ===================== PARALLEL VERSION – PROCESSES =====================
+// Linux / Unix only
+
+#include <sys/mman.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
+// ---------- shared memory helpers ----------
+
+double* allocSharedDouble(size_t n) {
+    return (double*) mmap(
+        nullptr,
+        n * sizeof(double),
+        PROT_READ | PROT_WRITE,
+        MAP_SHARED | MAP_ANONYMOUS,
+        -1,
+        0
+    );
+}
+
+inline double& NEST(double* nests, int i, int d, int DIM) {
+    return nests[i * DIM + d];
+}
+
+// ---------- worker: Lévy flights ----------
+
+void levyFlightProcess(double* nests, double* fitnessVal,
+                       int start, int end, int DIM,
+                       double LB, double UB,
+                       function<double(const vector<double>&)> fitness)
+{
+    vector<double> candidate(DIM);
+
+    for (int i = start; i < end; i++) {
+        for (int d = 0; d < DIM; d++) {
+            candidate[d] = NEST(nests, i, d, DIM) + levyFlight();
+            candidate[d] = max(LB, min(UB, candidate[d]));
+        }
+
+        double f_new = fitness(candidate);
+        if (f_new < fitnessVal[i]) {
+            for (int d = 0; d < DIM; d++)
+                NEST(nests, i, d, DIM) = candidate[d];
+            fitnessVal[i] = f_new;
+        }
+    }
+}
+
+// ---------- worker: abandon nests ----------
+
+void abandonNestsProcess(double* nests, double* fitnessVal,
+                         int start, int end, int DIM,
+                         double pa, double LB, double UB,
+                         function<double(const vector<double>&)> fitness)
+{
+    vector<double> tmp(DIM);
+
+    for (int i = start; i < end; i++) {
+        if (randDouble(0, 1) < pa) {
+            for (int d = 0; d < DIM; d++) {
+                tmp[d] = randDouble(LB, UB);
+                NEST(nests, i, d, DIM) = tmp[d];
+            }
+            fitnessVal[i] = fitness(tmp);
+        }
+    }
+}
+
+// ---------- MAIN: cuckoo search (process-based) ----------
+
+vector<double> cuckooSearchProcess(int N, int DIM, int MAX_ITER,
+                                   double pa, double LB, double UB,
+                                   function<double(const vector<double>&)> fitness,
+                                   int num_proc)
+{
+    if (num_proc <= 0)
+        num_proc = sysconf(_SC_NPROCESSORS_ONLN);
+
+    double* nests = allocSharedDouble(N * DIM);
+    double* fitnessVal = allocSharedDouble(N);
+
+    // ----- initialization -----
+    for (int i = 0; i < N; i++) {
+        vector<double> tmp(DIM);
+        for (int d = 0; d < DIM; d++) {
+            tmp[d] = randDouble(LB, UB);
+            NEST(nests, i, d, DIM) = tmp[d];
+        }
+        fitnessVal[i] = fitness(tmp);
+    }
+
+    int chunk = N / num_proc;
+
+    for (int iter = 0; iter < MAX_ITER; iter++) {
+
+        // ----- Lévy flights -----
+        for (int p = 0; p < num_proc; p++) {
+            if (fork() == 0) {
+                int start = p * chunk;
+                int end = (p == num_proc - 1) ? N : (p + 1) * chunk;
+                levyFlightProcess(nests, fitnessVal,
+                                  start, end, DIM, LB, UB, fitness);
+                _exit(0);
+            }
+        }
+        while (wait(nullptr) > 0);
+
+        // ----- abandon nests -----
+        for (int p = 0; p < num_proc; p++) {
+            if (fork() == 0) {
+                int start = p * chunk;
+                int end = (p == num_proc - 1) ? N : (p + 1) * chunk;
+                abandonNestsProcess(nests, fitnessVal,
+                                    start, end, DIM, pa, LB, UB, fitness);
+                _exit(0);
+            }
+        }
+        while (wait(nullptr) > 0);
+    }
+
+    // ----- best solution -----
+    int best = 0;
+    for (int i = 1; i < N; i++)
+        if (fitnessVal[i] < fitnessVal[best])
+            best = i;
+
+    vector<double> result(DIM);
+    for (int d = 0; d < DIM; d++)
+        result[d] = NEST(nests, best, d, DIM);
+
+    munmap(nests, N * DIM * sizeof(double));
+    munmap(fitnessVal, N * sizeof(double));
+
+    return result;
+}
