@@ -6,6 +6,8 @@
 #include <string>
 #include <cmath>
 #include <chrono>
+#include <functional>
+#include <fstream>
 
 #include "helper_functions.cpp"
 
@@ -65,7 +67,13 @@ T fromString(const char* str, T defaultValue) {
 
 // ===================== RUN + TIME =====================
 
-vector<double> runTimed(
+struct TimedResult {
+    vector<double> solution;
+    double fx;
+    double time_ms;
+};
+
+TimedResult runTimed(
     const string& name,
     function<vector<double>()> algo,
     function<double(const vector<double>&)> fitness
@@ -75,16 +83,75 @@ vector<double> runTimed(
     auto end = high_resolution_clock::now();
 
     double time_ms = duration<double, milli>(end - start).count();
+    double fx = fitness(result);
 
     cout << "--------------------------------------\n";
     cout << "Wersja: " << name << "\n";
     cout << "Czas:   " << time_ms << " ms\n";
-    cout << "f(x):   " << fitness(result) << "\n";
+    cout << "f(x):   " << fx << "\n";
     cout << "x*:     ";
     for (double v : result) cout << v << " ";
     cout << "\n";
 
-    return result;
+    return {result, fx, time_ms};
+}
+
+// ===================== BENCHMARK STRUCT =====================
+
+struct Benchmark {
+    string name;
+    function<double(const vector<double>&)> fitness;
+    double LB;
+    double UB;
+};
+
+// ===================== RUN ONE BENCHMARK =====================
+
+void runBenchmark(
+    const Benchmark& bm,
+    int numNests,
+    int iterations,
+    int dimension,
+    int numProc,
+    ofstream* csv = nullptr
+) {
+    const double pa = 0.25;
+
+    cout << "\n======================================\n";
+    cout << "Funkcja: " << bm.name << "\n";
+    cout << "Wymiar:  " << dimension << "\n";
+    cout << "Nests:   " << numNests << "\n";
+    cout << "Iter:    " << iterations << "\n";
+    cout << "======================================\n";
+
+    vector<pair<string, TimedResult>> results;
+
+    results.push_back({"SEQUENTIAL", runTimed("SEQUENTIAL", [&]() {
+        return cuckooSearch(numNests, dimension, iterations, pa, bm.LB, bm.UB, bm.fitness);
+    }, bm.fitness)});
+
+    results.push_back({"THREADS", runTimed("THREADS", [&]() {
+        return cuckooSearchParallel(numNests, dimension, iterations, pa, bm.LB, bm.UB, bm.fitness);
+    }, bm.fitness)});
+
+    results.push_back({"PROCESS", runTimed("PROCESS", [&]() {
+        return cuckooSearchProcess(numNests, dimension, iterations, pa, bm.LB, bm.UB, bm.fitness, numProc);
+    }, bm.fitness)});
+
+    // Write to CSV if provided
+    if (csv && csv->is_open()) {
+        for (auto& r : results) {
+            string numProcStr = (r.first == "PROCESS") ? to_string(numProc) : "";
+            *csv << bm.name << ","        // Function
+                 << r.first << ","        // Method
+                 << numNests << ","       // Nests
+                 << iterations << ","     // Iterations
+                 << dimension << ","      // Dimension
+                 << numProcStr << ","     // NumProc (only for PROCESS)
+                 << r.second.time_ms      // Time_ms
+                 << "\n";
+        }
+    }
 }
 
 // ===================== MAIN =====================
@@ -98,6 +165,7 @@ int main(int argc, char* argv[]) {
     int dimension  = 500;
     string func    = "sphere";
     int numProc    = 100;
+    string csvFile = "";
 
     // ----- CLI override -----
     if (argc > 1) numNests   = fromString(argv[1], numNests);
@@ -105,64 +173,59 @@ int main(int argc, char* argv[]) {
     if (argc > 3) dimension  = fromString(argv[3], dimension);
     if (argc > 4) func       = argv[4];
     if (argc > 5) numProc    = fromString(argv[5], numProc);
+    if (argc > 6) csvFile    = argv[6];
 
-    // ----- bounds & fitness -----
-    double LB, UB;
-    function<double(const vector<double>&)> fitness;
+    // ----- CSV file -----
+    ofstream csv;
+    bool writeHeader = true;
 
-    if (func == "rosen") {
-        fitness = rosenbrockFunction;
-        LB = -5.0; UB = 10.0;
-    }
-    else if (func == "rastrigin") {
-        fitness = rastriginFunction;
-        LB = -5.12; UB = 5.12;
-    }
-    else if (func == "ackley") {
-        fitness = ackleyFunction;
-        LB = -32.0; UB = 32.0;
-    }
-    else if (func == "schwefel") {
-        fitness = schwefelFunction;
-        LB = -500.0; UB = 500.0;
-    }
-    else {
-        fitness = sphereFunction;
-        LB = -10.0; UB = 10.0;
+    if (!csvFile.empty()) {
+        // Check if file exists
+        ifstream check(csvFile);
+        if (check.good()) {
+            writeHeader = false; // file exists → do not write header
+        }
+        check.close();
+
+        csv.open(csvFile, ios::app); // append mode
+        if (!csv.is_open()) {
+            cerr << "Nie mozna otworzyc pliku CSV: " << csvFile << "\n";
+            return 1;
+        }
+        if (writeHeader)
+            csv << "Function,Method,Nests,Iterations,Dimension,NumProc,Time_ms\n";
     }
 
-    const double pa = 0.25;
+    // ----- benchmarks -----
+    vector<Benchmark> benchmarks = {
+        {"sphere",    sphereFunction,    -10.0,   10.0},
+        {"rosen",     rosenbrockFunction, -5.0,    10.0},
+        {"rastrigin", rastriginFunction,  -5.12,   5.12},
+        {"ackley",    ackleyFunction,     -32.0,   32.0},
+        {"schwefel",  schwefelFunction,   -500.0,  500.0}
+    };
 
-    cout << "======================================\n";
-    cout << "Cuckoo Search – porownanie czasow\n";
-    cout << "Funkcja: " << func << "\n";
-    cout << "Wymiar:  " << dimension << "\n";
-    cout << "Nests:   " << numNests << "\n";
-    cout << "Iter:    " << iterations << "\n";
-    cout << "======================================\n";
+    // ----- run -----
+    if (func == "all") {
+        for (const auto& bm : benchmarks) {
+            runBenchmark(bm, numNests, iterations, dimension, numProc, csvFile.empty() ? nullptr : &csv);
+        }
+    } else {
+        bool found = false;
+        for (const auto& bm : benchmarks) {
+            if (bm.name == func) {
+                runBenchmark(bm, numNests, iterations, dimension, numProc, csvFile.empty() ? nullptr : &csv);
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            cerr << "Unknown function: " << func << "\n";
+            return 1;
+        }
+    }
 
-    // ===================== RUN ALL =====================
-
-    runTimed("SEQUENTIAL", [&]() {
-        return cuckooSearch(
-            numNests, dimension, iterations,
-            pa, LB, UB, fitness
-        );
-    }, fitness);
-
-    runTimed("PARALLEL (threads)", [&]() {
-        return cuckooSearchParallel(
-            numNests, dimension, iterations,
-            pa, LB, UB, fitness
-        );
-    }, fitness);
-
-    runTimed("PROCESS", [&]() {
-        return cuckooSearchProcess(
-            numNests, dimension, iterations,
-            pa, LB, UB, fitness, numProc
-        );
-    }, fitness);
+    if (csv.is_open()) csv.close();
 
     return 0;
 }
