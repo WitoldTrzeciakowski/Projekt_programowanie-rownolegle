@@ -126,12 +126,12 @@ void runBenchmark(
 
     vector<pair<string, TimedResult>> results;
 
-    results.push_back({"SEQUENTIAL", runTimed("SEQUENTIAL", [&]() {
-        return cuckooSearch(numNests, dimension, iterations, pa, bm.LB, bm.UB, bm.fitness);
-    }, bm.fitness)});
+    // results.push_back({"SEQUENTIAL", runTimed("SEQUENTIAL", [&]() {
+    //     return cuckooSearch(numNests, dimension, iterations, pa, bm.LB, bm.UB, bm.fitness);
+    // }, bm.fitness)});
 
     results.push_back({"THREADS", runTimed("THREADS", [&]() {
-        return cuckooSearchParallel(numNests, dimension, iterations, pa, bm.LB, bm.UB, bm.fitness);
+        return cuckooSearchParallel(numNests, dimension, iterations, pa, bm.LB, bm.UB, bm.fitness, numProc);
     }, bm.fitness)});
 
     results.push_back({"PROCESS", runTimed("PROCESS", [&]() {
