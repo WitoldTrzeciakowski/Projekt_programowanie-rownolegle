@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <thread>
 #include <random>
+#include <functional>
 
 using namespace std;
 

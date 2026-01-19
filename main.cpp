@@ -10,49 +10,10 @@
 #include <fstream>
 
 #include "helper_functions.cpp"
+#include "benchmark.h"
 
 using namespace std;
 using namespace chrono;
-
-// ===================== TEST FUNCTIONS =====================
-
-double sphereFunction(const vector<double>& x) {
-    double sum = 0.0;
-    for (double v : x)
-        sum += v * v;
-    return sum;
-}
-
-double rosenbrockFunction(const vector<double>& x) {
-    double sum = 0.0;
-    for (size_t i = 0; i < x.size() - 1; i++)
-        sum += 100 * pow(x[i+1] - x[i]*x[i], 2) + pow(x[i] - 1, 2);
-    return sum;
-}
-
-double rastriginFunction(const vector<double>& x) {
-    double sum = 10.0 * x.size();
-    for (double v : x)
-        sum += v*v - 10.0 * cos(2 * M_PI * v);
-    return sum;
-}
-
-double ackleyFunction(const vector<double>& x) {
-    double sum1 = 0.0, sum2 = 0.0;
-    for (double v : x) {
-        sum1 += v * v;
-        sum2 += cos(2 * M_PI * v);
-    }
-    return -20.0 * exp(-0.2 * sqrt(sum1 / x.size()))
-           - exp(sum2 / x.size()) + 20 + M_E;
-}
-
-double schwefelFunction(const vector<double>& x) {
-    double sum = 0.0;
-    for (double v : x)
-        sum += v * sin(sqrt(abs(v)));
-    return 418.9829 * x.size() - sum;
-}
 
 // ===================== STRING → TYPE =====================
 
@@ -95,15 +56,6 @@ TimedResult runTimed(
 
     return {result, fx, time_ms};
 }
-
-// ===================== BENCHMARK STRUCT =====================
-
-struct Benchmark {
-    string name;
-    function<double(const vector<double>&)> fitness;
-    double LB;
-    double UB;
-};
 
 // ===================== RUN ONE BENCHMARK =====================
 
