@@ -16,11 +16,11 @@ thread_local static mt19937 rng(random_device{}() + hash<thread::id>{}(this_thre
 thread_local static uniform_real_distribution<double> dist(0.0, 1.0);
 
 // ===== helpers =====
-inline double randDouble(double a, double b) {
+inline double randDouble(const double a, const double b) {
     return a + (b - a) * ((double)rand() / RAND_MAX);
 }
 
-inline double randDoubleParallel(double a, double b) {
+inline double randDoubleParallel(const double a, const double b) {
     return a + (b - a) * dist(rng);
 }
 
@@ -39,8 +39,8 @@ inline double levyFlightParallel() {
 // ===== interfaces =====
 vector<double> cuckooSearch(
     int, int, int, double, double, double,
-    function<double(const vector<double>&)>
-);
+    const function<double(const vector<double>&)>
+&);
 
 vector<double> cuckooSearchParallel(
     int, int, int, double, double, double,
@@ -49,7 +49,7 @@ vector<double> cuckooSearchParallel(
 
 vector<double> cuckooSearchProcess(
     int, int, int, double, double, double,
-    function<double(const vector<double>&)>, int = 0
+    const function<double(const vector<double>&)>&, int = 0
 );
 
 #endif

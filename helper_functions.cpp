@@ -16,8 +16,8 @@ using namespace std;
 thread_local mt19937 rng(random_device{}() + hash<thread::id>{}(this_thread::get_id()));
 thread_local uniform_real_distribution<double> dist(0.0, 1.0);
 
-double randDouble(double a, double b) {
-    return a + (b - a) * ((double)rand() / RAND_MAX);
+double randDouble(const double a, const double b) {
+    return a + (b - a) * (static_cast<double>(random()) / RAND_MAX);
 }
 
 double levyFlight() {
@@ -26,19 +26,19 @@ double levyFlight() {
     return u / pow(fabs(v), 1.0 / 1.5);
 }
 
-double randDoubleParrarel(double a, double b) {
+double randDoubleParallel(const double a, const double b) {
     return a + (b - a) * dist(rng);
 }
 
-double levyFlightParrarel() {
+double levyFlightParallel() {
     double u = dist(rng);
     double v = dist(rng);
     return u / pow(fabs(v), 1.0 / 1.5);
 }
 
-vector<double> cuckooSearch(int N, int DIM, int MAX_ITER,
-                            double pa, double LB, double UB,
-                            function<double(const vector<double>&)> fitness)
+vector<double> cuckooSearch(const int N, const int DIM, const int MAX_ITER,
+                            const double pa, const double LB, const double UB,
+                            const function<double(const vector<double>&)>& fitness)
 {
     vector<vector<double>> nests(N, vector<double>(DIM));
     vector<double> fitnessVal(N);
@@ -70,7 +70,7 @@ vector<double> cuckooSearch(int N, int DIM, int MAX_ITER,
 
         // --- Porzucanie gniazd ---
         for (int i = 0; i < N; i++) {
-            if ((double)rand() / RAND_MAX < pa) {
+            if (static_cast<double>(random()) / RAND_MAX < pa) {
                 for (int d = 0; d < DIM; d++)
                     nests[i][d] = randDouble(LB, UB);
                 fitnessVal[i] = fitness(nests[i]);
@@ -79,7 +79,7 @@ vector<double> cuckooSearch(int N, int DIM, int MAX_ITER,
     }
 
     // Wybór najlepszego rozwiązania
-    int best = min_element(fitnessVal.begin(), fitnessVal.end()) - fitnessVal.begin();
+    const int64_t best = min_element(fitnessVal.begin(), fitnessVal.end()) - fitnessVal.begin();
     return nests[best];
 }
 
@@ -87,15 +87,15 @@ vector<double> cuckooSearch(int N, int DIM, int MAX_ITER,
 
 void levyFlightWorker(vector<vector<double>>& nests, 
                       vector<double>& fitnessVal,
-                      int start, int end, int DIM, 
-                      double LB, double UB,
-                      function<double(const vector<double>&)> fitness)
+                      const int start, const int end, const int DIM,
+                      const double LB, const double UB,
+                      const function<double(const vector<double>&)>& fitness)
 {
     for (int i = start; i < end; i++) {
         vector<double> candidate = nests[i];
 
         for (int d = 0; d < DIM; d++) {
-            candidate[d] += levyFlightParrarel();
+            candidate[d] += levyFlightParallel();
             candidate[d] = max(LB, min(UB, candidate[d]));
         }
 
@@ -109,33 +109,33 @@ void levyFlightWorker(vector<vector<double>>& nests,
 
 void abandonNestsWorker(vector<vector<double>>& nests,
                         vector<double>& fitnessVal,
-                        int start, int end, int DIM,
-                        double pa, double LB, double UB,
-                        function<double(const vector<double>&)> fitness)
+                        const int start, const int end, const int DIM,
+                        const double pa, const double LB, const double UB,
+                        const function<double(const vector<double>&)>& fitness)
 {
     for (int i = start; i < end; i++) {
-        if (randDoubleParrarel(0, 1) < pa) {
+        if (randDoubleParallel(0, 1) < pa) {
             for (int d = 0; d < DIM; d++)
-                nests[i][d] = randDoubleParrarel(LB, UB);
+                nests[i][d] = randDoubleParallel(LB, UB);
             fitnessVal[i] = fitness(nests[i]);
         }
     }
 }
 
-vector<double> cuckooSearchParallel(int N, int DIM, int MAX_ITER,
+vector<double> cuckooSearchParallel(const int N, int DIM, const int MAX_ITER,
                                      double pa, double LB, double UB,
                                      function<double(const vector<double>&)> fitness,
                                      int num_threads = 0)
 {
     if (num_threads <= 0)
-        num_threads = thread::hardware_concurrency();
+        num_threads = static_cast<int>(thread::hardware_concurrency());
     
     vector<vector<double>> nests(N, vector<double>(DIM));
     vector<double> fitnessVal(N);
 
     // Inicjalizacja (parallel)
     vector<thread> threads;
-    int chunk = N / num_threads;
+    const int chunk = N / num_threads;
     
     for (int t = 0; t < num_threads; t++) {
         int start = t * chunk;
@@ -144,7 +144,7 @@ vector<double> cuckooSearchParallel(int N, int DIM, int MAX_ITER,
         threads.emplace_back([&, start, end]() {
             for (int i = start; i < end; i++) {
                 for (int j = 0; j < DIM; j++)
-                    nests[i][j] = randDoubleParrarel(LB, UB);
+                    nests[i][j] = randDoubleParallel(LB, UB);
                 fitnessVal[i] = fitness(nests[i]);
             }
         });
@@ -185,7 +185,7 @@ vector<double> cuckooSearchParallel(int N, int DIM, int MAX_ITER,
     }
 
     // Wybór najlepszego rozwiązania
-    int best = min_element(fitnessVal.begin(), fitnessVal.end()) - fitnessVal.begin();
+    const int64_t best = min_element(fitnessVal.begin(), fitnessVal.end()) - fitnessVal.begin();
     return nests[best];
 }
 // ===================== PARALLEL VERSION – PROCESSES =====================
@@ -197,27 +197,27 @@ vector<double> cuckooSearchParallel(int N, int DIM, int MAX_ITER,
 
 // ---------- shared memory helpers ----------
 
-double* allocSharedDouble(size_t n) {
-    return (double*) mmap(
+double* allocSharedDouble(const size_t n) {
+    return static_cast<double*>(mmap(
         nullptr,
         n * sizeof(double),
         PROT_READ | PROT_WRITE,
         MAP_SHARED | MAP_ANONYMOUS,
         -1,
         0
-    );
+    ));
 }
 
-inline double& NEST(double* nests, int i, int d, int DIM) {
+inline double& NEST(double* nests, const int i, const int d, const int DIM) {
     return nests[i * DIM + d];
 }
 
 // ---------- worker: Lévy flights ----------
 
 void levyFlightProcess(double* nests, double* fitnessVal,
-                       int start, int end, int DIM,
-                       double LB, double UB,
-                       function<double(const vector<double>&)> fitness)
+                       const int start, const int end, const int DIM,
+                       const double LB, const double UB,
+                       const function<double(const vector<double>&)>& fitness)
 {
     vector<double> candidate(DIM);
 
@@ -239,9 +239,9 @@ void levyFlightProcess(double* nests, double* fitnessVal,
 // ---------- worker: abandon nests ----------
 
 void abandonNestsProcess(double* nests, double* fitnessVal,
-                         int start, int end, int DIM,
-                         double pa, double LB, double UB,
-                         function<double(const vector<double>&)> fitness)
+                         const int start, const int end, const int DIM,
+                         const double pa, const double LB, const double UB,
+                         const function<double(const vector<double>&)>& fitness)
 {
     vector<double> tmp(DIM);
 
@@ -258,13 +258,13 @@ void abandonNestsProcess(double* nests, double* fitnessVal,
 
 // ---------- MAIN: cuckoo search (process-based) ----------
 
-vector<double> cuckooSearchProcess(int N, int DIM, int MAX_ITER,
-                                   double pa, double LB, double UB,
-                                   function<double(const vector<double>&)> fitness,
+vector<double> cuckooSearchProcess(const int N, const int DIM, const int MAX_ITER,
+                                   const double pa, const double LB, const double UB,
+                                   const function<double(const vector<double>&)>& fitness,
                                    int num_proc)
 {
     if (num_proc <= 0)
-        num_proc = sysconf(_SC_NPROCESSORS_ONLN);
+        num_proc = static_cast<int>(sysconf(_SC_NPROCESSORS_ONLN));
 
     double* nests = allocSharedDouble(N * DIM);
     double* fitnessVal = allocSharedDouble(N);
@@ -279,27 +279,27 @@ vector<double> cuckooSearchProcess(int N, int DIM, int MAX_ITER,
         fitnessVal[i] = fitness(tmp);
     }
 
-    int chunk = N / num_proc;
+    const int chunk = N / num_proc;
 
     for (int iter = 0; iter < MAX_ITER; iter++) {
 
         // ----- Lévy flights -----
         for (int p = 0; p < num_proc; p++) {
             if (fork() == 0) {
-                int start = p * chunk;
-                int end = (p == num_proc - 1) ? N : (p + 1) * chunk;
+                const int start = p * chunk;
+                const int end = (p == num_proc - 1) ? N : (p + 1) * chunk;
                 levyFlightProcess(nests, fitnessVal,
                                   start, end, DIM, LB, UB, fitness);
                 _exit(0);
             }
         }
-        while (wait(nullptr) > 0);
+        while (wait(nullptr) > 0) {}
 
         // ----- abandon nests -----
         for (int p = 0; p < num_proc; p++) {
             if (fork() == 0) {
-                int start = p * chunk;
-                int end = (p == num_proc - 1) ? N : (p + 1) * chunk;
+                const int start = p * chunk;
+                const int end = (p == num_proc - 1) ? N : (p + 1) * chunk;
                 abandonNestsProcess(nests, fitnessVal,
                                     start, end, DIM, pa, LB, UB, fitness);
                 _exit(0);
@@ -323,3 +323,10 @@ vector<double> cuckooSearchProcess(int N, int DIM, int MAX_ITER,
 
     return result;
 }
+
+// ===================== PARALLEL VERSION – MESSAGING =====================
+// Linux / Unix only
+
+// ===================== PARALLEL VERSION – RPC =====================
+// Linux / Unix only
+

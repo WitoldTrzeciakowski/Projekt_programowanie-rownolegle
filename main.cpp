@@ -36,8 +36,8 @@ struct TimedResult {
 
 TimedResult runTimed(
     const string& name,
-    function<vector<double>()> algo,
-    function<double(const vector<double>&)> fitness
+    const function<vector<double>()>& algo,
+    const function<double(const vector<double>&)>& fitness
 ) {
     auto start = high_resolution_clock::now();
     vector<double> result = algo();
@@ -61,10 +61,10 @@ TimedResult runTimed(
 
 void runBenchmark(
     const Benchmark& bm,
-    int numNests,
-    int iterations,
-    int dimension,
-    int numProc,
+    const int numNests,
+    const int iterations,
+    const int dimension,
+    const int numProc,
     ofstream* csv = nullptr
 ) {
     const double pa = 0.25;

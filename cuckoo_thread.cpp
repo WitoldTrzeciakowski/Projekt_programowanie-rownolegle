@@ -2,9 +2,9 @@
 
 static void levyWorker(vector<vector<double>>& nests,
                        vector<double>& fitnessVal,
-                       int s, int e, int DIM,
-                       double LB, double UB,
-                       function<double(const vector<double>&)> fitness)
+                       const int s, const int e, const int DIM,
+                       const double LB, const double UB,
+                       const function<double(const vector<double>&)>& fitness)
 {
     for (int i = s; i < e; i++) {
         vector<double> cand = nests[i];
@@ -22,9 +22,9 @@ static void levyWorker(vector<vector<double>>& nests,
 
 static void abandonWorker(vector<vector<double>>& nests,
                           vector<double>& fitnessVal,
-                          int s, int e, int DIM,
-                          double pa, double LB, double UB,
-                          function<double(const vector<double>&)> fitness)
+                          const int s, const int e, const int DIM,
+                          const double pa, const double LB, const double UB,
+                          const function<double(const vector<double>&)>& fitness)
 {
     for (int i = s; i < e; i++) {
         if (randDoubleParallel(0, 1) < pa) {
@@ -35,7 +35,7 @@ static void abandonWorker(vector<vector<double>>& nests,
     }
 }
 
-vector<double> cuckooSearchParallel(int N, int DIM, int MAX_ITER,
+vector<double> cuckooSearchParallel(const int N, int DIM, const int MAX_ITER,
                                     double pa, double LB, double UB,
                                     function<double(const vector<double>&)> fitness,
                                     int num_threads)

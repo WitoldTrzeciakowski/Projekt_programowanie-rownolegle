@@ -1,8 +1,8 @@
 #include "cuckoo_common.h"
 
-vector<double> cuckooSearch(int N, int DIM, int MAX_ITER,
-                            double pa, double LB, double UB,
-                            function<double(const vector<double>&)> fitness)
+vector<double> cuckooSearch(const int N, const int DIM, const int MAX_ITER,
+                            const double pa, const double LB, const double UB,
+                            const function<double(const vector<double>&)>& fitness)
 {
     vector<vector<double>> nests(N, vector<double>(DIM));
     vector<double> fitnessVal(N);

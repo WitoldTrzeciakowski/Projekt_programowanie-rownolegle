@@ -4,7 +4,7 @@
 #include <unistd.h>
 #include <semaphore.h>
 
-static double* allocShared(size_t n) {
+static double* allocShared(const size_t n) {
     return (double*) mmap(nullptr, n * sizeof(double),
         PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
 }
@@ -17,9 +17,9 @@ struct SharedData {
     bool stop;
 };
 
-vector<double> cuckooSearchProcess(int N, int DIM, int MAX_ITER,
-                                   double pa, double LB, double UB,
-                                   function<double(const vector<double>&)> fitness,
+vector<double> cuckooSearchProcess(const int N, const int DIM, const int MAX_ITER,
+                                   const double pa, const double LB, const double UB,
+                                   const function<double(const vector<double>&)>& fitness,
                                    int num_proc)
 {
     if (num_proc <= 0)
