@@ -45,7 +45,7 @@ inline double schwefelFunction(const std::vector<double>& x) {
     const auto size = static_cast<double>(x.size());
     double sum = 0.0;
     for (const double v : x)
-        sum += v * sin(sqrt(fabsf64(v)));
+        sum += v * sin(sqrt(abs(v)));
     return 418.9829 * size - sum;
 }
 
@@ -54,7 +54,7 @@ inline double schwefelFunction(const std::vector<double>& x) {
 
 struct Benchmark {
     std::string name;
-    std::function<double(const std::vector<double>&)> fitness;
+    int fitnessId;
     double LB;
     double UB;
 };

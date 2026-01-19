@@ -8,6 +8,9 @@
 #include <random>
 #include <functional>
 
+#include "fitness.h"
+#include "shared_types.h"
+
 using namespace std;
 
 // ===================== helpers =====================
@@ -21,8 +24,8 @@ double randDouble(const double a, const double b) {
 }
 
 double levyFlight() {
-    double u = randDouble(0, 1);
-    double v = randDouble(0, 1);
+    const double u = randDouble(0, 1);
+    const double v = randDouble(0, 1);
     return u / pow(fabs(v), 1.0 / 1.5);
 }
 
@@ -31,8 +34,8 @@ double randDoubleParallel(const double a, const double b) {
 }
 
 double levyFlightParallel() {
-    double u = dist(rng);
-    double v = dist(rng);
+    const double u = dist(rng);
+    const double v = dist(rng);
     return u / pow(fabs(v), 1.0 / 1.5);
 }
 
@@ -61,7 +64,7 @@ vector<double> cuckooSearch(const int N, const int DIM, const int MAX_ITER,
                 candidate[d] = max(LB, min(UB, candidate[d]));
             }
 
-            double f_new = fitness(candidate);
+            const double f_new = fitness(candidate);
             if (f_new < fitnessVal[i]) {
                 nests[i] = candidate;
                 fitnessVal[i] = f_new;
@@ -99,7 +102,7 @@ void levyFlightWorker(vector<vector<double>>& nests,
             candidate[d] = max(LB, min(UB, candidate[d]));
         }
 
-        double f_new = fitness(candidate);
+        const double f_new = fitness(candidate);
         if (f_new < fitnessVal[i]) {
             nests[i] = candidate;
             fitnessVal[i] = f_new;
@@ -227,7 +230,7 @@ void levyFlightProcess(double* nests, double* fitnessVal,
             candidate[d] = max(LB, min(UB, candidate[d]));
         }
 
-        double f_new = fitness(candidate);
+        const double f_new = fitness(candidate);
         if (f_new < fitnessVal[i]) {
             for (int d = 0; d < DIM; d++)
                 NEST(nests, i, d, DIM) = candidate[d];
@@ -327,6 +330,242 @@ vector<double> cuckooSearchProcess(const int N, const int DIM, const int MAX_ITE
 // ===================== PARALLEL VERSION – MESSAGING =====================
 // Linux / Unix only
 
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+
+void sendNests(const int sock, const double* nests, const double* fitness, const int start, const int end, const int DIM) {
+    const int count = end - start;
+    send(sock, &nests[start * DIM], count * DIM * sizeof(double), 0);
+    send(sock, &fitness[start], count * sizeof(double), 0);
+}
+
+void recvNests(const int sock, double* nests, double* fitness, const int start, const int end, const int DIM) {
+    const int count = end - start;
+    recv(sock, &nests[start * DIM], count * DIM * sizeof(double), MSG_WAITALL);
+    recv(sock, &fitness[start], count * sizeof(double), MSG_WAITALL);
+}
+
+vector<double> cuckooSearchMessaging(const int N, const int DIM, const int MAX_ITER,
+                                      const double pa, const double LB, const double UB,
+                                      const int fitness_id,
+                                      int num_workers = 4,
+                                      int basePort = 9000)
+{
+    auto fitness = getFitness(fitness_id);
+    vector<double> nestsFlat(N * DIM);
+    vector<double> fitnessVal(N);
+
+    for (int i = 0; i < N; i++) {
+        vector<double> tmp(DIM);
+        for (int d = 0; d < DIM; d++) {
+            tmp[d] = randDouble(LB, UB);
+            nestsFlat[i * DIM + d] = tmp[d];
+        }
+        fitnessVal[i] = fitness(tmp);
+    }
+
+    vector<pid_t> workerPids;
+    for (int w = 0; w < num_workers; w++) {
+        pid_t pid = fork();
+        if (pid == 0) {
+            string portArg = to_string(basePort + w);
+            execl("./messaging_worker", "messaging_worker", portArg.c_str(), nullptr);
+            _exit(1);
+        }
+        workerPids.push_back(pid);
+    }
+
+    usleep(100000);
+
+    vector<int> sockets(num_workers);
+    for (int w = 0; w < num_workers; w++) {
+        sockets[w] = socket(AF_INET, SOCK_STREAM, 0);
+
+        sockaddr_in addr{};
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(basePort + w);
+        inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+
+        while (connect(sockets[w], reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0)
+            usleep(10000);
+    }
+
+    int chunk = N / num_workers;
+
+    for (int iter = 0; iter < MAX_ITER; iter++) {
+
+        for (int w = 0; w < num_workers; w++) {
+            int start = w * chunk;
+            int end = (w == num_workers - 1) ? N : (w + 1) * chunk;
+
+            WorkPacket packet{MSG_LEVY_FLIGHT, start, end, DIM, N, pa, LB, UB, fitness_id};
+            send(sockets[w], &packet, sizeof(packet), 0);
+            sendNests(sockets[w], nestsFlat.data(), fitnessVal.data(), start, end, DIM);
+        }
+
+        for (int w = 0; w < num_workers; w++) {
+            int start = w * chunk;
+            int end = (w == num_workers - 1) ? N : (w + 1) * chunk;
+            recvNests(sockets[w], nestsFlat.data(), fitnessVal.data(), start, end, DIM);
+        }
+
+        for (int w = 0; w < num_workers; w++) {
+            int start = w * chunk;
+            int end = (w == num_workers - 1) ? N : (w + 1) * chunk;
+
+            WorkPacket packet{MSG_ABANDON_NESTS, start, end, DIM, N, pa, LB, UB, fitness_id};
+            send(sockets[w], &packet, sizeof(packet), 0);
+            sendNests(sockets[w], nestsFlat.data(), fitnessVal.data(), start, end, DIM);
+        }
+
+        for (int w = 0; w < num_workers; w++) {
+            int start = w * chunk;
+            int end = (w == num_workers - 1) ? N : (w + 1) * chunk;
+            recvNests(sockets[w], nestsFlat.data(), fitnessVal.data(), start, end, DIM);
+        }
+    }
+
+    for (int w = 0; w < num_workers; w++) {
+        WorkPacket packet{MSG_TERMINATE, 0, 0, 0, 0, 0, 0, 0, 0};
+        send(sockets[w], &packet, sizeof(packet), 0);
+        close(sockets[w]);
+    }
+
+    for (auto pid : workerPids)
+        waitpid(pid, nullptr, 0);
+
+    int best = 0;
+    for (int i = 1; i < N; i++)
+        if (fitnessVal[i] < fitnessVal[best])
+            best = i;
+
+    vector<double> result(DIM);
+    for (int d = 0; d < DIM; d++)
+        result[d] = nestsFlat[best * DIM + d];
+
+    return result;
+}
+
 // ===================== PARALLEL VERSION – RPC =====================
 // Linux / Unix only
 
+int rpcConnect(const int port) {
+    const int sock = socket(AF_INET, SOCK_STREAM, 0);
+
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+
+    while (connect(sock, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0)
+        usleep(10000);
+
+    return sock;
+}
+
+void rpcCall(const int port, const int function,
+             double* nests, double* fitness,
+             const int start, const int end, const int DIM,
+             const double pa, const double LB, const double UB,
+             const int fitness_id)
+{
+    const int sock = rpcConnect(port);
+
+    const int count = end - start;
+    const RPCRequest req{function, count, DIM, pa, LB, UB, fitness_id};
+
+    send(sock, &req, sizeof(req), 0);
+    send(sock, &nests[start * DIM], count * DIM * sizeof(double), 0);
+    send(sock, &fitness[start], count * sizeof(double), 0);
+
+    recv(sock, &nests[start * DIM], count * DIM * sizeof(double), MSG_WAITALL);
+    recv(sock, &fitness[start], count * sizeof(double), MSG_WAITALL);
+
+    close(sock);
+}
+
+void rpcShutdown(const int port) {
+    const int sock = rpcConnect(port);
+    constexpr RPCRequest req{RPC_SHUTDOWN, 0, 0, 0, 0, 0};
+    send(sock, &req, sizeof(req), 0);
+    close(sock);
+}
+
+vector<double> cuckooSearchRPC(const int N, const int DIM, const int MAX_ITER,
+                                const double pa, const double LB, const double UB,
+                                int fitness_id,
+                                const int num_servers = 4,
+                                const int basePort = 9100)
+{
+    vector<double> nestsFlat(N * DIM);
+    vector<double> fitnessVal(N);
+    const auto fitness = getFitness(fitness_id);
+
+    for (int i = 0; i < N; i++) {
+        vector<double> tmp(DIM);
+        for (int d = 0; d < DIM; d++) {
+            tmp[d] = randDouble(LB, UB);
+            nestsFlat[i * DIM + d] = tmp[d];
+        }
+        fitnessVal[i] = fitness(tmp);
+    }
+
+    vector<pid_t> serverPids;
+    for (int s = 0; s < num_servers; s++) {
+        pid_t pid = fork();
+        if (pid == 0) {
+            const string portArg = to_string(basePort + s);
+            execl("./rpc_server", "rpc_server", portArg.c_str(), nullptr);
+            _exit(1);
+        }
+        serverPids.push_back(pid);
+    }
+
+    usleep(100000);
+
+    const int chunk = N / num_servers;
+
+    for (int iter = 0; iter < MAX_ITER; iter++) {
+
+        vector<thread> threads;
+
+        for (int s = 0; s < num_servers; s++) {
+            int start = s * chunk;
+            int end = (s == num_servers - 1) ? N : (s + 1) * chunk;
+
+            threads.emplace_back(rpcCall, basePort + s, RPC_LEVY_FLIGHT,
+                                 nestsFlat.data(), fitnessVal.data(),
+                                 start, end, DIM, pa, LB, UB, fitness_id);
+        }
+        for (auto& t : threads) t.join();
+        threads.clear();
+
+        for (int s = 0; s < num_servers; s++) {
+            int start = s * chunk;
+            int end = (s == num_servers - 1) ? N : (s + 1) * chunk;
+
+            threads.emplace_back(rpcCall, basePort + s, RPC_ABANDON_NESTS,
+                                 nestsFlat.data(), fitnessVal.data(),
+                                 start, end, DIM, pa, LB, UB, fitness_id);
+        }
+        for (auto& t : threads) t.join();
+    }
+
+    for (int s = 0; s < num_servers; s++)
+        rpcShutdown(basePort + s);
+
+    for (const auto pid : serverPids)
+        waitpid(pid, nullptr, 0);
+
+    int best = 0;
+    for (int i = 1; i < N; i++)
+        if (fitnessVal[i] < fitnessVal[best])
+            best = i;
+
+    vector<double> result(DIM);
+    for (int d = 0; d < DIM; d++)
+        result[d] = nestsFlat[best * DIM + d];
+
+    return result;
+}

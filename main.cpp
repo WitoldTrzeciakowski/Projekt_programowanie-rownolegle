@@ -1,6 +1,5 @@
 #include <iostream>
 #include <vector>
-#include <cstdlib>
 #include <ctime>
 #include <sstream>
 #include <string>
@@ -11,6 +10,7 @@
 
 #include "helper_functions.cpp"
 #include "benchmark.h"
+#include "shared_types.h"
 
 using namespace std;
 using namespace chrono;
@@ -67,7 +67,7 @@ void runBenchmark(
     const int numProc,
     ofstream* csv = nullptr
 ) {
-    const double pa = 0.25;
+    constexpr double pa = 0.25;
 
     cout << "\n======================================\n";
     cout << "Funkcja: " << bm.name << "\n";
@@ -77,18 +77,26 @@ void runBenchmark(
     cout << "======================================\n";
 
     vector<pair<string, TimedResult>> results;
+    auto fitness = getFitness(bm.fitnessId);
+    results.emplace_back("SEQUENTIAL", runTimed("SEQUENTIAL", [&]() {
+        return cuckooSearch(numNests, dimension, iterations, pa, bm.LB, bm.UB, fitness);
+    }, fitness));
 
-    results.push_back({"SEQUENTIAL", runTimed("SEQUENTIAL", [&]() {
-        return cuckooSearch(numNests, dimension, iterations, pa, bm.LB, bm.UB, bm.fitness);
-    }, bm.fitness)});
+    results.emplace_back("THREADS", runTimed("THREADS", [&]() {
+        return cuckooSearchParallel(numNests, dimension, iterations, pa, bm.LB, bm.UB, fitness);
+    }, fitness));
 
-    results.push_back({"THREADS", runTimed("THREADS", [&]() {
-        return cuckooSearchParallel(numNests, dimension, iterations, pa, bm.LB, bm.UB, bm.fitness);
-    }, bm.fitness)});
+    results.emplace_back("PROCESS", runTimed("PROCESS", [&]() {
+        return cuckooSearchProcess(numNests, dimension, iterations, pa, bm.LB, bm.UB, fitness, numProc);
+    }, fitness));
 
-    results.push_back({"PROCESS", runTimed("PROCESS", [&]() {
-        return cuckooSearchProcess(numNests, dimension, iterations, pa, bm.LB, bm.UB, bm.fitness, numProc);
-    }, bm.fitness)});
+    results.emplace_back("MESSAGING", runTimed("MESSAGING", [&]() {
+    return cuckooSearchMessaging(numNests, dimension, iterations, pa, bm.LB, bm.UB, bm.fitnessId, numProc);
+    }, fitness));
+
+    results.emplace_back("RPC", runTimed("RPC", [&]() {
+        return cuckooSearchRPC(numNests, dimension, iterations, pa, bm.LB, bm.UB, bm.fitnessId, numProc);
+    }, fitness));
 
     // Write to CSV if provided
     if (csv && csv->is_open()) {
@@ -109,7 +117,7 @@ void runBenchmark(
 // ===================== MAIN =====================
 
 int main(int argc, char* argv[]) {
-    srand(time(NULL));
+    srandom(time(nullptr));
 
     // ----- default parameters -----
     int numNests   = 5000;
@@ -117,7 +125,7 @@ int main(int argc, char* argv[]) {
     int dimension  = 500;
     string func    = "sphere";
     int numProc    = 100;
-    string csvFile = "";
+    string csvFile;
 
     // ----- CLI override -----
     if (argc > 1) numNests   = fromString(argv[1], numNests);
@@ -129,9 +137,9 @@ int main(int argc, char* argv[]) {
 
     // ----- CSV file -----
     ofstream csv;
-    bool writeHeader = true;
 
     if (!csvFile.empty()) {
+        bool writeHeader = true;
         // Check if file exists
         ifstream check(csvFile);
         if (check.good()) {
@@ -150,11 +158,11 @@ int main(int argc, char* argv[]) {
 
     // ----- benchmarks -----
     vector<Benchmark> benchmarks = {
-        {"sphere",    sphereFunction,    -10.0,   10.0},
-        {"rosen",     rosenbrockFunction, -5.0,    10.0},
-        {"rastrigin", rastriginFunction,  -5.12,   5.12},
-        {"ackley",    ackleyFunction,     -32.0,   32.0},
-        {"schwefel",  schwefelFunction,   -500.0,  500.0}
+        {"sphere",    FITNESS_SPHERE,    -10.0,   10.0},
+        {"rosen",     FITNESS_ROSENBROCK, -5.0,    10.0},
+        {"rastrigin", FITNESS_RASTRIGIN,  -5.12,   5.12},
+        {"ackley",    FITNESS_ACKLEY,     -32.0,   32.0},
+        {"schwefel",  FITNESS_SCHWEFEL,   -500.0,  500.0}
     };
 
     // ----- run -----
